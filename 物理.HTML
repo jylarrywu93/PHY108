@@ -63,244 +63,204 @@ h1{font-size:20px;margin:0}
 </div>
 
 <script>
-// ========= 基本工具 =========
+// ===== 工具函式 =====
 const rndi = (min,max)=>Math.floor(Math.random()*(max-min+1))+min;
-const toFixedSmart = (x,d=2)=>Number(x).toFixed(d).replace(/\.00$/,'');
-const shuffle = (a)=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
-
-// 生成四選項（保持正確答案存在）
-function makeChoices(correct, distractors){
-  const arr = [correct, ...distractors];
-  // 剛好四個就洗牌；多或少就修正
-  const four = arr.slice(0,4);
-  shuffle(four);
-  const answer = four.indexOf(correct);
-  return {choices: four, answer};
+const pick = (arr)=>arr[Math.floor(Math.random()*arr.length)];
+const roundSig = (x, sig)=>{
+  if (x===0) return "0";
+  const m = Number(x);
+  const p = Math.ceil(Math.log10(Math.abs(m)));
+  const f = sig - p;
+  return Number(m.toFixed(Math.max(f,0)));
+};
+function makeChoicesSmart(correct, genDistractors){
+  const set = new Set([correct]);
+  let guard = 0;
+  while(set.size<4 && guard<30){
+    const d = genDistractors();
+    if (d!==correct) set.add(d);
+    guard++;
+  }
+  const arr = Array.from(set);
+  for (let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+  const answer = arr.indexOf(correct);
+  return {choices: arr, answer};
 }
 
-// ========= 題型產生器（第一章） =========
+// ===== 強化版第一章出題器（多題型模板） =====
 function gen_t1(){
-  const type = ['sigfig','perror','sum_unc'][rndi(0,2)];
-
-  if(type==='sigfig'){
-    // 三種不同型態輪流出
-    const pattern = rndi(1,3);
-    let raw, ans;
-    if(pattern===1){
-      raw = '0.' + '0'.repeat(rndi(1,3)) + String(rndi(10,99)); // 0.00ab
-      ans = 2;
-    }else if(pattern===2){
-      const base = rndi(1,9)*1000; // 3000
-      const style = ['plain','dot','sci'][rndi(0,2)];
-      if(style==='plain'){ raw=String(base); ans=1; }
-      else if(style==='dot'){ raw=String(base)+'.'; ans=4; }
-      else { // 科學記號
-        const sig = rndi(2,4);
-        raw = (base/1000).toFixed(sig-1)+'×10^3';
-        ans = sig;
-      }
-    }else{
-      const dec = (rndi(10,99)/1000).toFixed(rndi(2,4)); // 0.0xxx
-      raw = String(dec);
-      ans = String(dec).replace(/^0\./,'').replace(/0+$/,'').length;
-    }
-    const correct = ans+' 位';
-    const {choices,answer} = makeChoices(correct, [
-      (ans-1)+' 位',
-      (ans+1)+' 位',
-      (ans===1?3:ans-2)+' 位'
-    ]);
-    return {
-      stem:`下列數值的有效數字為幾位？ ${raw}`,
-      choices, answer,
-      explanation:`判斷規則：1) 前導零不算；2) 小數點右側末尾零算；3) 科學記號中的係數全部算。以本題 ${raw} 可得 ${ans} 位。`,
-      life:`生活例子：電子秤顯示 0.0340 kg，末尾 0 代表解析度，需算入有效數字。`
-    };
-  }
-
-  if(type==='perror'){
-    const truev = rndi(50,200);
-    const meas = truev + rndi(-5,5);
-    const perror = Math.abs((meas-truev)/truev)*100;
-    const correct = toFixedSmart(perror,2)+'%';
-    const {choices,answer} = makeChoices(correct, [
-      toFixedSmart(perror*2,2)+'%',
-      toFixedSmart(perror/2,2)+'%',
-      toFixedSmart(perror + rndi(1,5),2)+'%'
-    ]);
-    return {
-      stem:`某物理量真值為 ${truev}，量得 ${meas}，百分誤差約為？`,
-      choices, answer,
-      explanation:`百分誤差＝|測量值−真值|/真值×100%＝|${meas}−${truev}|/${truev}×100%≈${correct}。`,
-      life:`生活例子：量身高若尺未貼齊牆面，讀數偏大，會造成百分誤差。`
-    };
-  }
-
-  // 加減法不確定度（取最差小數位）
-  const a = (rndi(120,235)/100).toFixed(2);
-  const b = (rndi(95,140)/100).toFixed(2);
-  const sum = (parseFloat(a)+parseFloat(b)).toFixed(2);
-  const correct = `${sum} cm`;
-  const {choices,answer} = makeChoices(correct, [
-    (parseFloat(sum)).toFixed(3)+' cm',
-    (parseFloat(sum)).toFixed(1)+' cm',
-    (Math.round(parseFloat(sum)*10)/10).toFixed(1)+' cm'
+  const unitLen = pick(["cm","m","mm"]);
+  const unitMass = pick(["g","kg"]);
+  const unitTime = pick(["s","min"]);
+  const template = pick([
+    "sig_leading_zero","sig_trailing_no_dot","sig_trailing_with_dot","sig_scientific","sig_round_to_n",
+    "add_rule","sub_rule","mul_rule","div_rule","percent_error_abs","percent_error_small"
   ]);
-  return {
-    stem:`將兩長度相加：${a} cm 與 ${b} cm，結果應表達為？（依最差位數原則）`,
-    choices, answer,
-    explanation:`加減法以最差小數位為準。兩者皆至 0.01 cm，故結果保留至 0.01 cm：${a}+${b}=${sum} cm。`,
-    life:`生活例子：量桌長與桌寬相加估對角線時，結果呈現要以較差的位數為準。`
-  };
+
+  if (template==="sig_leading_zero"){
+    const zeros = rndi(1,3);
+    const tail = rndi(100,999);
+    const raw = "0." + "0".repeat(zeros) + String(tail);
+    const ans = String(tail).replace(/0+$/,'').length;
+    const correct = `${ans} 位`;
+    const {choices,answer} = makeChoicesSmart(correct, ()=>`${Math.max(1, ans+pick([-2,-1,1,2]))} 位`);
+    return {stem:`數值 ${raw} 的有效數字有幾位？`,choices,answer,
+      explanation:`前導零不算； ${raw} 去除前導零後計數，尾端非必要的 0 不算入，因此為 ${ans} 位。`,
+      life:`電子秤顯示 0.00340 ${unitMass} 時，前面的 0 只是定位，不能算有效數字。`};
+  }
+  if (template==="sig_trailing_no_dot"){
+    const base = pick([100,200,300,400,500,600,700,800,900])*pick([1,10,100]);
+    const raw = String(base);
+    const ans = 1;
+    const correct = `${ans} 位`;
+    const {choices,answer} = makeChoicesSmart(correct, ()=>`${pick([2,3,4])} 位`);
+    return {stem:`數值 ${raw}（未標示小數點）之有效數字為？`,choices,answer,
+      explanation:`未標示小數點且未特別標示的末尾 0 一般不視為有效，僅最高位肯定 → 1 位。`,
+      life:`測距寫「3000 m」不帶小數點，多半只代表約略數。`};
+  }
+  if (template==="sig_trailing_with_dot"){
+    const base = pick([1000,2000,3000,4000,5000]);
+    const raw = base + ".";
+    const ans = String(base).length;
+    const correct = `${ans} 位`;
+    const {choices,answer} = makeChoicesSmart(correct, ()=>`${pick([ans-1, ans+1, 3])} 位`);
+    return {stem:`數值 ${raw} 的有效數字為？`,choices,answer,
+      explanation:`有小數點且末尾零表示精度，皆為有效 → ${ans} 位。`,
+      life:`量程顯示 3000. ${unitLen}，尾零具意義，代表量測解析度。`};
+  }
+  if (template==="sig_scientific"){
+    const sig = pick([2,3,4]);
+    const coeff = (Math.random()*9+1).toFixed(sig-1);
+    const p = pick([-3,-2,-1,0,1,2,3]);
+    const raw = `${coeff}×10^${p}`;
+    const correct = `${sig} 位`;
+    const {choices,answer} = makeChoicesSmart(correct, ()=>`${pick([sig-1, sig+1, 3])} 位`);
+    return {stem:`科學記號 ${raw} 的有效數字有幾位？`,choices,answer,
+      explanation:`科學記號中只看係數 ${coeff} 的位數 → ${sig} 位。`,
+      life:`實驗紀錄常以科學記號表達，例如 6.02×10^23。`};
+  }
+  if (template==="sig_round_to_n"){
+    const n = pick([2,3,4]);
+    const value = (Math.random()*9000+10).toFixed(pick([2,3,4]));
+    const rounded = roundSig(value, n);
+    const {choices,answer} = makeChoicesSmart(String(rounded), ()=>{
+      const delta = pick([-1,1]);
+      return String(roundSig(value, Math.max(1,n+delta)));
+    });
+    return {stem:`將 ${value} 以「${n} 位有效數字」表示為？`,choices,answer,
+      explanation:`依有效位數四捨五入，${value} → ${rounded}（保留 ${n} 位）。`,
+      life:`資料表常要求統一位數，便於比較。`};
+  }
+  if (template==="add_rule"){
+    const a = (Math.random()*10).toFixed(pick([0,1,2]));
+    const b = (Math.random()*10).toFixed(pick([1,2,3]));
+    const worst = Math.min((a.split('.')[1]||'').length,(b.split('.')[1]||'').length);
+    const sum = (Number(a)+Number(b)).toFixed(worst);
+    const {choices,answer} = makeChoicesSmart(`${sum} ${unitLen}`, ()=>{
+      const wrong1 = Number(a)+Number(b);
+      return pick([`${wrong1.toFixed(Math.max(worst-1,0))} ${unitLen}`,`${wrong1.toFixed(worst+1)} ${unitLen}`]);
+    });
+    return {stem:`以加法規則處理：${a} ${unitLen} + ${b} ${unitLen} = ？`,choices,answer,
+      explanation:`加法看小數位，取最差者，結果 ${sum} ${unitLen}。`,
+      life:`把兩次尺量結果相加，結果的小數位不能比最差的那一次更細。`};
+  }
+  if (template==="sub_rule"){
+    const a = (Math.random()*10+10).toFixed(pick([1,2,3]));
+    const b = (Math.random()*10).toFixed(pick([0,1,2]));
+    const worst = Math.min((a.split('.')[1]||'').length,(b.split('.')[1]||'').length);
+    const val = (Number(a)-Number(b));
+    const diff = val.toFixed(worst);
+    const {choices,answer} = makeChoicesSmart(`${diff} ${unitLen}`, ()=>{
+      return pick([`${val.toFixed(Math.max(worst-1,0))} ${unitLen}`,`${val.toFixed(worst+1)} ${unitLen}`]);
+    });
+    return {stem:`以減法規則處理：${a} ${unitLen} − ${b} ${unitLen} = ？`,choices,answer,
+      explanation:`減法同樣看小數位，取最差者 → ${diff} ${unitLen}。`,
+      life:`量兩次時間相減求間隔，表示到與較差者相同的小數位。`};
+  }
+  if (template==="mul_rule"){
+    const aSig = pick([2,3,4]);
+    const bSig = pick([2,3,4]);
+    const a = roundSig((Math.random()*9+1), aSig);
+    const b = roundSig((Math.random()*9+1), bSig);
+    const prod = a*b;
+    const keep = Math.min(aSig,bSig);
+    const out = roundSig(prod, keep);
+    const {choices,answer} = makeChoicesSmart(String(out), ()=>String(roundSig(prod, keep+pick([-1,1]))));
+    return {stem:`乘法 ${a} × ${b} 應保留？`,choices,answer,
+      explanation:`乘法看有效位數，取兩者較少者為 ${keep} 位，故 ≈${out}。`,
+      life:`面積＝長×寬，結果有效位數不能超過最少的那一個量測。`};
+  }
+  if (template==="div_rule"){
+    const aSig = pick([2,3,4]);
+    const bSig = pick([2,3,4]);
+    const a = roundSig((Math.random()*90+10), aSig);
+    const b = roundSig((Math.random()*9+1), bSig);
+    const q = a/b;
+    const keep = Math.min(aSig,bSig);
+    const out = roundSig(q, keep);
+    const {choices,answer} = makeChoicesSmart(String(out), ()=>String(roundSig(q, keep+pick([-1,1]))));
+    return {stem:`除法 ${a} ÷ ${b} 應保留？`,choices,answer,
+      explanation:`除法同乘法，取有效位數較少者 → ${keep} 位，故 ≈${out}。`,
+      life:`計算密度＝質量/體積，表示位數由最少有效位的量測限制。`};
+  }
+  if (template==="percent_error_abs"){
+    const truev = Math.round(Math.random()*90+10);
+    const meas = truev + pick([-5,-3,-2,-1,1,2,3,5]);
+    const perror = Math.abs((meas-truev)/truev)*100;
+    const correct = `${Number(perror.toFixed(2))}%`;
+    const {choices,answer} = makeChoicesSmart(correct, ()=>`${Number((perror*pick([0.5, 2, 1.5])).toFixed(2))}%`);
+    return {stem:`真值 ${truev}，量得 ${meas}，百分誤差約為？`,choices,answer,
+      explanation:`|測−真|/真×100%≈${correct}。`,
+      life:`用捲尺測身高，若尺未頂到牆面，會產生固定方向的誤差。`};
+  }
+  const truev = Number((Math.random()*0.9+0.1).toFixed(2));
+  const meas = Number((truev + (Math.random()*0.2-0.1)).toFixed(2));
+  const perror = Math.abs((meas-truev)/truev)*100;
+  const correct = `${Number(perror.toFixed(2))}%`;
+  const {choices,answer} = makeChoicesSmart(correct, ()=>`${Number((perror*pick([0.5, 2, 0.8, 1.2])).toFixed(2))}%`);
+  return {stem:`真值 ${truev}，量得 ${meas}，百分誤差約為？`,choices,answer,
+    explanation:`|測−真|/真×100%≈${correct}。真值小時，相同差值會造成較大的百分誤差。`,
+    life:`量很短的時間（如反應時間），即使差 0.05 ${unitTime}，相對誤差比例也很高。`};
 }
 
-// ========= 狀態與元素 =========
-let bank = [];           // 20 題題庫（資料）
-let idx = 0;             // 當前題目索引
-let done = false;        // 是否已交卷
-let ok = 0, bad = 0;     // 統計
+// ===== 狀態 =====
+let bank=[], idx=0, done=false, ok=0, bad=0;
+const questionArea=document.getElementById('questionArea'), navArea=document.getElementById('navArea'),
+resultArea=document.getElementById('resultArea'), scoreLine=document.getElementById('scoreLine'),
+reviewArea=document.getElementById('reviewArea'), okCountEl=document.getElementById('okCount'),
+badCountEl=document.getElementById('badCount'), bar=document.getElementById('progressBar'),
+progressText=document.getElementById('progressText');
 
-const questionArea = document.getElementById('questionArea');
-const navArea = document.getElementById('navArea');
-const resultArea = document.getElementById('resultArea');
-const scoreLine = document.getElementById('scoreLine');
-const reviewArea = document.getElementById('reviewArea');
-const okCountEl = document.getElementById('okCount');
-const badCountEl = document.getElementById('badCount');
-const bar = document.getElementById('progressBar');
-const progressText = document.getElementById('progressText');
-
-// ========= 渲染單題 =========
+// ===== 渲染單題 =====
 function renderOne(){
-  const q = bank[idx];
-  questionArea.innerHTML = '';
-  const card = document.createElement('div');
-  card.className = 'qcard';
-  card.innerHTML = `
-    <div class="small"><span class="tag">第一章｜測量與不確定度</span> 第 ${idx+1} / ${bank.length} 題</div>
+  const q=bank[idx];
+  questionArea.innerHTML='';
+  const card=document.createElement('div');
+  card.className='qcard';
+  card.innerHTML=`<div class="small"><span class="tag">第一章</span> 第 ${idx+1} / ${bank.length} 題</div>
     <div style="margin:6px 0 10px">${q.stem}</div>
     <div id="choices"></div>
-    <div class="explain" id="explain"><b>詳解：</b>${q.explanation}<br><b>生活化例子：</b>${q.life}</div>
-  `;
-  const ch = card.querySelector('#choices');
-
-  q.choices.forEach((c, j)=>{
-    const opt = document.createElement('div');
-    opt.className = 'choice';
-    opt.dataset.choice = String(j);
-    opt.innerHTML = `<b>${'ABCD'[j]}</b> ${c}`;
+    <div class="explain" id="explain"><b>詳解：</b>${q.explanation}<br><b>生活化例子：</b>${q.life}</div>`;
+  const ch=card.querySelector('#choices');
+  q.choices.forEach((c,j)=>{
+    const opt=document.createElement('div');
+    opt.className='choice';
+    opt.dataset.choice=String(j);
+    opt.innerHTML=`<b>${'ABCD'[j]}</b> ${c}`;
     ch.appendChild(opt);
   });
-
-  // 若已作答過，回填樣式與解析
-  if (q.userAnswered !== undefined){
-    const items = ch.querySelectorAll('.choice');
-    items.forEach((el, j)=>{
-      if (j===q.answer) el.classList.add('correct');
-      if (j===q.userAnswered && j!==q.answer) el.classList.add('wrong');
+  if(q.userAnswered!==undefined){
+    const items=ch.querySelectorAll('.choice');
+    items.forEach((el,j)=>{
+      if(j===q.answer) el.classList.add('correct');
+      if(j===q.userAnswered && j!==q.answer) el.classList.add('wrong');
     });
     document.getElementById('explain').classList.add('show');
   }
-
   questionArea.appendChild(card);
   updateProgress();
 }
 
-// ========= 事件委派（點選選項） =========
-questionArea.addEventListener('click', (e)=>{
-  if (done) return;
-  const opt = e.target.closest('.choice');
-  if (!opt) return;
-
-  const q = bank[idx];
-  const choice = parseInt(opt.dataset.choice);
-
-  // 允許重選：先清除樣式
-  const items = questionArea.querySelectorAll('.choice');
-  items.forEach(el=>el.classList.remove('correct','wrong'));
-
-  // 樣式標示
-  items.forEach((el, j)=>{
-    if (j===q.answer) el.classList.add('correct');
-    if (j===choice && j!==q.answer) el.classList.add('wrong');
-  });
-
-  // 統計（若是第一次作答才計入）
-  if (q.userAnswered === undefined){
-    if (choice===q.answer) ok++; else bad++;
-  }else{
-    // 若是重選：先回退舊統計，再計入新選
-    if (q.userAnswered===q.answer) ok--; else bad--;
-    if (choice===q.answer) ok++; else bad++;
-  }
-  q.userAnswered = choice;
-
-  // 練習模式立即顯示解析；模考模式也改為立即顯示（避免「覺得點不動」）
-  document.getElementById('explain').classList.add('show');
-
-  updateProgress();
-});
-
-// ========= 進度條與統計 =========
-function updateProgress(){
-  const answered = bank.filter(q=>q.userAnswered!==undefined).length;
-  okCountEl.textContent = ok;
-  badCountEl.textContent = bad;
-  bar.style.width = `${(answered/bank.length)*100}%`;
-  progressText.textContent = `已作答 ${answered}/${bank.length} 題`;
-}
-
-// ========= 控制：開始 / 上一題 / 下一題 / 交卷 / 清除 =========
-document.getElementById('startBtn').addEventListener('click', ()=>{
-  // 產生 20 題
-  bank = Array.from({length:20}, ()=>gen_t1());
-  idx = 0; done = false; ok = 0; bad = 0;
-  navArea.style.display = 'block';
-  resultArea.style.display = 'none';
-  renderOne();
-});
-
-document.getElementById('prevBtn').addEventListener('click', ()=>{
-  if (idx>0){ idx--; renderOne(); }
-});
-document.getElementById('nextBtn').addEventListener('click', ()=>{
-  if (idx<bank.length-1){ idx++; renderOne(); }
-});
-
-document.getElementById('submitBtn').addEventListener('click', ()=>{
-  if (done) return;
-  done = true;
-  const total = bank.length;
-  const score = Math.round(100*ok/total);
-  scoreLine.innerHTML = `本次成績：<b>${score} 分</b>（正確 ${ok}／錯誤 ${bad}，共 ${total} 題）`;
-  // 錯題回顧
-  reviewArea.innerHTML = '';
-  bank.forEach((q,i)=>{
-    if (q.userAnswered===q.answer) return;
-    const div = document.createElement('div');
-    div.className = 'qcard';
-    const ua = (q.userAnswered===undefined)?'未作答':q.choices[q.userAnswered];
-    div.innerHTML = `<div class="small"><span class="tag">錯題</span> 第 ${i+1} 題</div>
-      <div style="margin-top:6px"><b>題目：</b>${q.stem}</div>
-      <div style="margin-top:6px"><b>你的作答：</b>${ua} ｜ <b>正確答案：</b>${q.choices[q.answer]}</div>
-      <div class="explain show" style="margin-top:8px"><b>詳解：</b>${q.explanation}<br><b>生活化例子：</b>${q.life}</div>`;
-    reviewArea.appendChild(div);
-  });
-  resultArea.style.display = 'block';
-});
-
-document.getElementById('clearBtn').addEventListener('click', ()=>{
-  // 清畫面，不動 localStorage（本版本未使用 localStorage）
-  bank = []; idx = 0; done = false; ok = 0; bad = 0;
-  questionArea.innerHTML = '';
-  navArea.style.display = 'none';
-  resultArea.style.display = 'none';
-  bar.style.width = '0%';
-  progressText.textContent = '尚未開始';
-  okCountEl.textContent = '0';
-  badCountEl.textContent = '0';
-});
-
-</script>
-</body>
-</html>
+// ===== 事件委派 =====
+questionArea.addEventListener('click',e=>{
+  if(done
